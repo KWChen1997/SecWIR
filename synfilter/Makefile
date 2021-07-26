@@ -25,5 +25,5 @@ $(PROGS): $(PROGS).o
 kernel:
 	make -C $(KDIR) M=$(PWD) modules 
 clean:
-	rm -rf *.o *.mod.c *.ko *.symvers *.order *.makers
+	rm -rf *.o *.mod.c *.ko *.symvers *.order *.makers $(PROGS)
 endif
