@@ -9,6 +9,7 @@ fi
 function cleanup() {
 	# echo "Remove syndrv kernel module"
 	rmmod syndrv
+	echo
 }
 
 function inttrap(){
