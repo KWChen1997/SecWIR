@@ -7,7 +7,7 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 function cleanup() {
-	# echo "Remove syndrv kernel module"
+	echo "Remove syndrv kernel module"
 	rmmod syndrv
 	echo
 }
@@ -19,5 +19,7 @@ function inttrap(){
 trap cleanup EXIT
 trap inttrap SIGINT
 
-insmod syndrv.ko
-./filter
+echo "Instal syndrv kernel module"
+insmod kernel/syndrv.ko
+echo "Start processing NFQUEUE"
+user/filter
