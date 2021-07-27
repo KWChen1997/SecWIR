@@ -5,6 +5,7 @@ else
 	KVER := $(shell uname -r)
 	KDIR := /lib/modules/$(KVER)/build
 default:    
+	echo $(PWD)
 	$(MAKE) -C $(KDIR) M=$(PWD) modules
 all:
 	make -C $(KDIR) M=$(PWD) modules 
