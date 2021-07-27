@@ -1,5 +1,5 @@
 # SynFilter
-# Part 1: kernel module
+## Part 1: kernel module
 - Goal: redirect the tcp syn packets to NFQUEUE
 - Related Files:
 	- syndrv/syndrv.c
@@ -29,7 +29,7 @@ sudo rmmod syndrv
 dmesg
 ```
 
-# Part 2: user program in C
+## Part 2: user program in C
 - Goal: show the source IP and the initial window size of tcp three way handshake
 - Related Files:
 	- filter/filter.c
@@ -44,9 +44,23 @@ make user
 make
 ```
 
-# Part 3: user program in Python
+## Part 3: user program in Python
 - Goal: show the entire syn packet of the tcp three way handshake
 - Related File:
 	- filter/filter.py
 - Library Dependency:
-	- 
+	- netfilterqueue
+	- scapy
+- netfilterqueue library installation:
+```sh=
+# pip install netfilterqueue is not working for my case
+# Therefore, the following is an alternative method to 
+# install netfilterqueue which works fine for me
+
+pip install -U git+https://github.com/kti/python-netfilterqueue
+```
+
+## Notes
+- Simply typing `make` in the project dir will compile both syndrv and filter
+- For part 2 and 3, both program should run as root
+
