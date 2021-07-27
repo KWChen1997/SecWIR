@@ -29,6 +29,18 @@ sudo rmmod syndrv
 dmesg
 ```
 
+- Sample Output
+```
+[52339.871851] kernel module syndrv start!
+[52339.871852] nf_register_hook returnd 0
+[52340.793154] A syn request is captured!
+[52341.792331] A syn request is captured!
+[52343.792236] A syn request is captured!
+[52347.807281] A syn request is captured!
+...
+[52383.891605] kernel module syndrv exit!
+```
+
 ## Part 2: user program in C
 - Goal: show the source IP and the initial window size of tcp three way handshake
 - Related Files:
@@ -42,6 +54,23 @@ make user
 
 # In the filter dir
 make
+```
+
+- Sample Output
+```
+opening library handle
+unbinding existing nf_queue handler for AF_INET (if any)
+binding nfnetlink_queue as nf_queue handler for AF_INET
+binding this socket to queue '0'
+setting copy_packet mode
+source address=10.42.0.205 window size=14600
+source address=10.42.0.205 window size=14600
+source address=10.42.0.205 window size=14600
+source address=10.42.0.205 window size=14600
+source address=10.42.0.205 window size=14600
+source address=10.42.0.118 window size=14000
+source address=10.42.0.205 window size=14600
+...
 ```
 
 ## Part 3: user program in Python
@@ -58,6 +87,39 @@ make
 # install netfilterqueue which works fine for me
 
 pip install -U git+https://github.com/kti/python-netfilterqueue
+```
+
+- Sample Output
+```
+start!
+###[ IP ]###
+  version   = 4
+  ihl       = 5
+  tos       = 0x0
+  len       = 60
+  id        = 42329
+  flags     = DF
+  frag      = 0
+  ttl       = 64
+  proto     = tcp
+  chksum    = 0x8041
+  src       = 10.42.0.205
+  dst       = 10.42.0.1
+  \options   \
+###[ TCP ]###
+     sport     = 41923
+     dport     = telnet
+     seq       = 2639332072
+     ack       = 0
+     dataofs   = 10
+     reserved  = 0
+     flags     = S
+     window    = 14600
+     chksum    = 0xc59
+     urgptr    = 0
+     options   = [('MSS', 1460), ('SAckOK', b''), ('Timestamp', (8497387, 0)), ('NOP', None), ('WScale', 4)]
+
+None
 ```
 
 ## Notes
