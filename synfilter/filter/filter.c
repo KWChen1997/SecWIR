@@ -10,6 +10,8 @@
 
 #include "filter.h"
 
+#define NFQ_NUM 1
+
 static u_int32_t print_pkt (struct nfq_data *tb)
 {
 	int id = 0;
@@ -73,8 +75,8 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
-	printf("binding this socket to queue '0'\n");
-	qh = nfq_create_queue(h,  0, &cb, NULL);
+	printf("binding this socket to queue '1'\n");
+	qh = nfq_create_queue(h,  NFQ_NUM, &cb, NULL);
 	if (!qh) {
 		fprintf(stderr, "error during nfq_create_queue()\n");
 		exit(1);

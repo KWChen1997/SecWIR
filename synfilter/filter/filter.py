@@ -28,7 +28,7 @@ def print_and_accept(pkt):
 print("start!")
 load_layer("tls")
 nfqueue = NetfilterQueue()
-nfqueue.bind(0, print_and_accept)
+nfqueue.bind(1, print_and_accept)
 
 
 try:

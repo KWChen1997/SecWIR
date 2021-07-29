@@ -21,7 +21,7 @@
 #include <linux/sched.h>
 #include "syndrv.h"
 
-
+#define NFQ_NUM 1
 
 static struct nf_hook_ops nfho;
 struct udphdr *udp_header;          //udp header struct (not used)
@@ -30,9 +30,6 @@ u_char *payload;    // The pointer for the tcp payload.
 char sourceAddr[20];
 char myAddr[20] = "140.113.41.24"; 
 char destAddr[20];
-
-int packettoread = 0;
-bool recorded = false;
 
 unsigned int my_func(void *priv,
         struct sk_buff *skb,
@@ -63,8 +60,8 @@ unsigned int my_func(void *priv,
     sprintf(sourceAddr, "%u.%u.%u.%u", NIPQUAD(iph->saddr));
     
     if(tcph->syn == 1 && tcph->ack == 0){
-        printk("A syn request is captured!\n");
-	return NF_QUEUE;
+        printk("A syn packet is redirect to nf_queue 1!\n");
+	return NF_QUEUE_NR(NFQ_NUM);
     }
 
     return NF_ACCEPT;
