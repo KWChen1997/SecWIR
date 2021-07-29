@@ -12,6 +12,22 @@
 
 #define NFQ_NUM 1
 
+int is_syn(unsigned char *data){
+	struct iphdr *iph;
+	struct tcphdr *tcph;
+
+	iph = (struct iphdr*)data;
+	if(iph->protocol != IPPROTO_TCP)goto NOT_SYN;
+	tcph = (struct tcphdr*)(data + sizeof(struct iphdr));
+	if(tcph->syn == 1 && tcph->ack == 0)goto IS_SYN;
+	else goto NOT_SYN;
+
+IS_SYN:
+	return 1;
+NOT_SYN:
+	return 0;
+}
+
 static u_int32_t print_pkt (struct nfq_data *tb)
 {
 	int id = 0;
@@ -40,11 +56,18 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct nfq_data *
 {
 //	u_int32_t id = print_pkt(nfa);
 	u_int32_t id;
+	
+	int ret;
+	unsigned char *payload;
 
         struct nfqnl_msg_packet_hdr *ph;
 	ph = nfq_get_msg_packet_hdr(nfa);	
 	id = ntohl(ph->packet_id);
-	print_pkt(nfa);
+	
+	ret = nfq_get_payload(nfa,&payload);
+
+	if(ret >= 0 && is_syn(payload))
+		print_pkt(nfa);
 	return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
 }
 
