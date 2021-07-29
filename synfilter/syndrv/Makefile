@@ -10,5 +10,5 @@ default:
 all:
 	make -C $(KDIR) M=$(PWD) modules 
 clean:
-	rm -rf *.o *.mod.c *.ko *.symvers *.order *.makers .*.cmd
+	rm -rf *.o *.mod.c *.ko *.symvers *.order *.makers .*.cmd *.mod
 endif
