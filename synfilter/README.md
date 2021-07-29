@@ -122,6 +122,10 @@ start!
 None
 ```
 
+## Part 4: capture.sh
+- this shell scipt will install kernel module and start the filter program
+- when the script stops with SIGINT it will also remove the kernel module
+
 ## Notes
 - Simply typing `make` in the project dir will compile both syndrv and filter
 - For part 2 and 3, both program should run as root
