@@ -1,6 +1,6 @@
 # SynFilter
 ## Part 1: kernel module
-- Goal: redirect the tcp syn packets to NFQUEUE
+- Goal: redirect the tcp syn packets to NFQUEUE with queue number 1
 - Related Files:
 	- syndrv/syndrv.c
 	- syndrv/syndrv.h
@@ -125,4 +125,4 @@ None
 ## Notes
 - Simply typing `make` in the project dir will compile both syndrv and filter
 - For part 2 and 3, both program should run as root
-
+- The NFQ_NUM in both syndrv.c and filter.c is the target queue the module and program will utilize
