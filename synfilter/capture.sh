@@ -20,6 +20,6 @@ trap cleanup EXIT
 trap inttrap SIGINT
 
 echo "Instal syndrv kernel module"
-insmod kernel/syndrv.ko
+insmod syndrv/syndrv.ko
 echo "Start processing NFQUEUE"
-user/filter
+filter/filter
