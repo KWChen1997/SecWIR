@@ -1,0 +1,8 @@
+sample.c
+verify_file*
+verify_mem*
+*.log
+*.swp
+certVerifier
+mycerts/*
+emptycerts/*
