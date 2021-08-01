@@ -1,5 +1,5 @@
 # SecWIR
-## CertVerifier
+## CertFirewall
 - kernel module to capture the tls handshake of specific website
 - certificate verifier program in python
 ## synfilter
