@@ -7,5 +7,5 @@ fi
 
 conntrack $@ -L 2>/dev/null|\
 ./filter.awk|\
-sort -n -k 7 -k 9 -r|\
+sort -n -k 11 -k 13 -r|\
 head -n 5
