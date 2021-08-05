@@ -1,0 +1,14 @@
+#!/bin/bash
+
+if [ $# -lt 2 ];then
+	echo 'Usage: puller <address> <port>' 
+	exit -1
+fi
+
+if [[ ! $1 =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]];then
+	echo 'Wrong address format'
+	exit -1
+fi
+
+exec 3</dev/tcp/$1/$2
+cat <&3

@@ -1,0 +1,17 @@
+#!/bin/bash
+
+if [ $# -lt 2 ];then
+	echo 'Usage: sender <file> <port>'
+	exit -1
+fi
+
+if [ ! -e $1 ];then
+	echo "File $1 does not exist!"
+	exit -1
+fi
+
+echo "Sending file $1"
+
+while true;do
+	cat $1|nc -lnv -q 1 -p $2
+done
