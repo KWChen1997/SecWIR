@@ -1,3 +1,0 @@
-[submodule "CertVerifier"]
-	path = CertVerifier
-	url = git@github.com:KWChen1997/CertVerifier.git
