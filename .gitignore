@@ -6,3 +6,4 @@
 *.swp
 *.cmd
 synfilter/filter/filter
+netflow/c/netflow
