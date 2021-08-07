@@ -56,6 +56,12 @@ void track_print(){
 	return;
 }
 
+int track_comp(const void *lhs, const void *rhs){
+	struct track *tlhs = (struct track*)lhs;
+	struct track *trhs = (struct track*)rhs;
+	return (trhs->packets - tlhs->packets);
+}
+
 struct track* parser(char str[]){
 	struct track *res;
 	int fip1 = 1;
@@ -128,6 +134,8 @@ int main(int argc, char **argv){
 	if(ret == -1){
 		perror(strerror(errno));
 	}
+
+	qsort(trackList,idx,sizeof(struct track), track_comp);
 
 	track_print();
 
