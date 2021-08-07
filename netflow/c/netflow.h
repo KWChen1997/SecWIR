@@ -7,17 +7,17 @@
 
 #ifndef MYNETFLOW
 #define MYNETFLOW
-#define TRACK_CAP 3
 
 struct track{
-        char ip1[15];
-        char ip2[15];
+	char type[10];
+        char ip1[16];
+        char ip2[16];
         unsigned long packets;
         unsigned long bytes;
 };
 
 void track_init();
-void track_add(char *ip1, char *ip2, unsigned long packets, unsigned long bytes);
+void track_add(char *type, char *ip1, char *ip2, unsigned long packets, unsigned long bytes);
 void track_expand();
 void track_print();
 
