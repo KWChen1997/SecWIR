@@ -52,10 +52,21 @@ void track_expand(){
 
 void track_print(){
 	int i = 0;
+	printf("%-10s %-15s %-7s %-15s %-7s %10s %10s\n","type", "ip1", "port1", "ip2", "port2", "packets", "bytes");
 	for(i = 0; i < idx; i++){
-		printf("type: %-10s ip1: %-15s port: %-5d ip2: %-15s port: %-5d packets: %10ld bytes: %10ld \n",trackList[i].type, trackList[i].ip1, trackList[i].port1,trackList[i].ip2,trackList[i].port2, trackList[i].packets, trackList[i].bytes);
+		printf("%-10s %-15s %-7d %-15s %-7d %10ld %10ld\n",trackList[i].type, trackList[i].ip1, trackList[i].port1,trackList[i].ip2,trackList[i].port2, trackList[i].packets, trackList[i].bytes);
 	}
 	return;
+}
+
+void track_print5(){
+	int i = 0;
+	printf("%-10s %-15s %-7s %-15s %-7s %10s %10s\n","type", "ip1", "port1", "ip2", "port2", "packets", "bytes");
+	for(i = 0; i < idx && i < 5; i++){
+		printf("%-10s %-15s %-7d %-15s %-7d %10ld %10ld\n",trackList[i].type, trackList[i].ip1, trackList[i].port1,trackList[i].ip2,trackList[i].port2, trackList[i].packets, trackList[i].bytes);
+	}
+	return;
+
 }
 
 int track_comp(const void *lhs, const void *rhs){
@@ -154,7 +165,7 @@ int main(int argc, char **argv){
 
 	qsort(trackList,idx,sizeof(struct track), track_comp);
 
-	track_print();
+	track_print5();
 
 	nfct_close(h);
 	nfct_destroy(ct);
