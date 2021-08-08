@@ -26,12 +26,14 @@ void track_init(){
 	return;
 }
 
-void track_add(char *type, char *ip1, char *ip2, unsigned long packets, unsigned long bytes){
+void track_add(char *type, char *ip1, int port1, char *ip2, int port2, unsigned long packets, unsigned long bytes){
 	if(idx == cap)
 		track_expand();
 	strncpy(trackList[idx].type,type,10);
 	strncpy(trackList[idx].ip1,ip1,16);
+	trackList[idx].port1 = port1;
 	strncpy(trackList[idx].ip2,ip2,16);
+	trackList[idx].port2 = port2;
 	trackList[idx].packets = packets;
 	trackList[idx].bytes = bytes;
 	idx++;
@@ -51,7 +53,7 @@ void track_expand(){
 void track_print(){
 	int i = 0;
 	for(i = 0; i < idx; i++){
-		printf("type: %-10s ip1: %-15s ip2: %-15s packets: %10ld bytes: %10ld \n",trackList[i].type, trackList[i].ip1, trackList[i].ip2, trackList[i].packets, trackList[i].bytes);
+		printf("type: %-10s ip1: %-15s port: %-5d ip2: %-15s port: %-5d packets: %10ld bytes: %10ld \n",trackList[i].type, trackList[i].ip1, trackList[i].port1,trackList[i].ip2,trackList[i].port2, trackList[i].packets, trackList[i].bytes);
 	}
 	return;
 }
@@ -66,6 +68,8 @@ struct track* parser(char str[]){
 	struct track *res;
 	int fip1 = 1;
 	int fip2 = 1;
+	int fport1 = 1;
+	int fport2 = 1;
 	res = (struct track*)malloc(sizeof(struct track));
 	memset(res,0,sizeof(struct track));
 
@@ -83,6 +87,14 @@ struct track* parser(char str[]){
 			fip2 = 0;
 			strncpy(res->ip2,pch+4,15);
 		}
+		else if(fport1 && !strncmp(pch, "sport",5)){
+			fport1 = 0;
+			res->port1 = atoi(pch+6);
+		}
+		else if(fport2 && !strncmp(pch, "dport",5)){
+			fport2 = 0;
+			res->port2 = atoi(pch+6);
+		}
 		else if(!strncmp(pch,"packets",7)){
 			res->packets += strtoul(pch+8,NULL,0);
 		}
@@ -91,6 +103,11 @@ struct track* parser(char str[]){
 		}
 		pch = strtok(NULL," ");
 	}
+
+	if(fport1)
+		res->port1 = -1;
+	if(fport2)
+		res->port2 = -1;
 
 	return res;
 }
@@ -106,7 +123,7 @@ int cb(enum nf_conntrack_msg_type type, struct nf_conntrack *ct, void *data){
 	nfct_snprintf(buf, sizeof(buf), ct, NFCT_T_UNKNOWN, NFCT_O_DEFAULT, 0);
 	// printf("%s\n", buf);
 	res = parser(buf);
-	track_add(res->type,res->ip1, res->ip2, res->packets, res->bytes);
+	track_add(res->type, res->ip1, res->port1, res->ip2, res->port2, res->packets, res->bytes);
 
 	return NFCT_CB_CONTINUE;
 }
