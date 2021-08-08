@@ -13,8 +13,8 @@
 	```
 
 - Sample output
-	if port == -1, conntrack does not give the port number about the traffic
 	```sh=
+	# if port == -1, conntrack does not give the port number about the traffic
 	type       ip1             port1   ip2             port2      packets      bytes
 	tcp        192.168.24.14   22      192.168.24.125  12214         1368     112064
 	udp        192.168.24.38   5353    224.0.0.251     5353             3        354
