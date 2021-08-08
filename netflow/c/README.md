@@ -1,4 +1,7 @@
 # netflow in C
+- Library dependency
+	- libnetfilter-conntrack-dev
+	- libnetfilter-conntrack3
 - How to compile
 	```sh=
 	gcc -o netflow netflow.c -lnetfilter_conntrack
