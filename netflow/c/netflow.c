@@ -81,8 +81,9 @@ int track_comp(const void *lhs, const void *rhs){
 int cb(enum nf_conntrack_msg_type type, struct nf_conntrack *ct, void *data){
 	char buf[1024];
 	struct nf_conntrack *obj = data;
-	struct in_addr src;
-	struct in_addr dst;
+	struct in_addr tmp;
+	char src[16] = "";
+	char dst[16] = "";
 	uint16_t sport = 0;
 	uint16_t dport = 0;
 	int protonum;
@@ -101,10 +102,12 @@ int cb(enum nf_conntrack_msg_type type, struct nf_conntrack *ct, void *data){
 		proto = getprotobynumber(protonum);
 	}
 	if(nfct_attr_is_set(ct,ATTR_ORIG_IPV4_SRC)){
-		src.s_addr = nfct_get_attr_u32(ct, ATTR_ORIG_IPV4_SRC);
+		tmp.s_addr = nfct_get_attr_u32(ct, ATTR_ORIG_IPV4_SRC);
+		snprintf(src,15,"%s",inet_ntoa(tmp));
 	}
 	if(nfct_attr_is_set(ct,ATTR_ORIG_IPV4_DST)){
-		dst.s_addr = nfct_get_attr_u32(ct, ATTR_ORIG_IPV4_DST);
+		tmp.s_addr = nfct_get_attr_u32(ct, ATTR_ORIG_IPV4_DST);
+		snprintf(dst,15,"%s",inet_ntoa(tmp));
 	}
 	if(nfct_attr_is_set(ct,ATTR_ORIG_PORT_SRC)){
 		sport = nfct_get_attr_u16(ct, ATTR_ORIG_PORT_SRC);
@@ -124,7 +127,7 @@ int cb(enum nf_conntrack_msg_type type, struct nf_conntrack *ct, void *data){
 	if(nfct_attr_is_set(ct,ATTR_REPL_COUNTER_BYTES)){
 		bytes += nfct_get_attr_u64(ct, ATTR_REPL_COUNTER_BYTES);
 	}
-	track_add(proto->p_name,inet_ntoa(src),sport,inet_ntoa(dst),dport,packets,bytes);
+	track_add(proto->p_name,src,sport,dst,dport,packets,bytes);
 
 	return NFCT_CB_CONTINUE;
 }
@@ -141,8 +144,12 @@ int main(int argc, char *argv[]){
 	trackList = NULL;
 
 	int opt;
-	while((opt = getopt(argc, argv, "s:d:")) != -1){
+	while((opt = getopt(argc, argv, "hs:d:")) != -1){
 		switch(opt){
+			case 'h':
+				fprintf(stderr,"Usage: ./netflow [-s <ip>] [-d <ip>]\n");
+				exit(0);
+				break;
 			case 's':
 				srcflag = 1;
 				strncpy(src,optarg,15);
