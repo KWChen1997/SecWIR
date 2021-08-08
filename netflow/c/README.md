@@ -12,6 +12,7 @@
 - How to use
 	```sh=
 	# The program must have root privilege
+	# -h: show helping message
 	# -s: src ip address of this traffic
 	# -d: dst ip address of this traffic
 	sudo ./netflow [-s <ip>] [-d <ip>]
