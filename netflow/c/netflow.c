@@ -4,8 +4,11 @@
 #include <unistd.h>
 #include <assert.h>
 #include <errno.h>
+#include <arpa/inet.h>
+#include <netdb.h>
 
 #include <libnetfilter_conntrack/libnetfilter_conntrack.h>
+#include <libnetfilter_conntrack/libnetfilter_conntrack_tcp.h>
 #include "netflow.h"
 
 #define TRACK_CAP 100
@@ -26,7 +29,7 @@ void track_init(){
 	return;
 }
 
-void track_add(char *type, char *ip1, int port1, char *ip2, int port2, unsigned long packets, unsigned long bytes){
+void track_add(char *type, char *ip1, uint16_t port1, char *ip2, uint16_t port2, uint64_t packets, uint64_t bytes){
 	if(idx == cap)
 		track_expand();
 	strncpy(trackList[idx].type,type,10);
@@ -75,92 +78,114 @@ int track_comp(const void *lhs, const void *rhs){
 	return (trhs->packets - tlhs->packets);
 }
 
-struct track* parser(char str[]){
-	struct track *res;
-	int fip1 = 1;
-	int fip2 = 1;
-	int fport1 = 1;
-	int fport2 = 1;
-	res = (struct track*)malloc(sizeof(struct track));
-	memset(res,0,sizeof(struct track));
-
-	char *pch;
-	pch = strtok(str," ");
-	strncpy(res->type,pch,10);
-	pch = strtok(NULL, " ");
-	while(pch != NULL){
-		// printf("%s\n", pch);
-		if(fip1 && !strncmp(pch,"src",3)){
-			fip1 = 0;
-			strncpy(res->ip1,pch+4,15);
-		}
-		else if(fip2 && !strncmp(pch, "dst",3)){
-			fip2 = 0;
-			strncpy(res->ip2,pch+4,15);
-		}
-		else if(fport1 && !strncmp(pch, "sport",5)){
-			fport1 = 0;
-			res->port1 = atoi(pch+6);
-		}
-		else if(fport2 && !strncmp(pch, "dport",5)){
-			fport2 = 0;
-			res->port2 = atoi(pch+6);
-		}
-		else if(!strncmp(pch,"packets",7)){
-			res->packets += strtoul(pch+8,NULL,0);
-		}
-		else if(!strncmp(pch,"bytes",5)){
-			res->bytes += strtoul(pch+6,NULL,0);
-		}
-		pch = strtok(NULL," ");
-	}
-
-	if(fport1)
-		res->port1 = -1;
-	if(fport2)
-		res->port2 = -1;
-
-	return res;
-}
-
 int cb(enum nf_conntrack_msg_type type, struct nf_conntrack *ct, void *data){
 	char buf[1024];
 	struct nf_conntrack *obj = data;
+	struct in_addr src;
+	struct in_addr dst;
+	uint16_t sport = 0;
+	uint16_t dport = 0;
+	int protonum;
+	struct protoent *proto;
+	uint64_t packets = 0;
+	uint64_t bytes = 0;
 
-	struct track *res;
-
-	if(!nfct_cmp(obj,ct, NFCT_CMP_ALL|NFCT_CMP_MASK))
+	if(!nfct_cmp(obj,ct, NFCT_CMP_ORIG))
 		return NFCT_CB_CONTINUE;
 	nfct_snprintf(buf, sizeof(buf), ct, NFCT_T_UNKNOWN, NFCT_O_DEFAULT, 0);
 	// printf("%s\n", buf);
-	res = parser(buf);
-	track_add(res->type, res->ip1, res->port1, res->ip2, res->port2, res->packets, res->bytes);
+	// res = parser(buf);
+	// track_add(res->type, res->ip1, res->port1, res->ip2, res->port2, res->packets, res->bytes);
+	if(nfct_attr_is_set(ct,ATTR_ORIG_L4PROTO)){	
+		protonum = nfct_get_attr_u8(ct, ATTR_ORIG_L4PROTO);
+		proto = getprotobynumber(protonum);
+	}
+	if(nfct_attr_is_set(ct,ATTR_ORIG_IPV4_SRC)){
+		src.s_addr = nfct_get_attr_u32(ct, ATTR_ORIG_IPV4_SRC);
+	}
+	if(nfct_attr_is_set(ct,ATTR_ORIG_IPV4_DST)){
+		dst.s_addr = nfct_get_attr_u32(ct, ATTR_ORIG_IPV4_DST);
+	}
+	if(nfct_attr_is_set(ct,ATTR_ORIG_PORT_SRC)){
+		sport = nfct_get_attr_u16(ct, ATTR_ORIG_PORT_SRC);
+	}
+	if(nfct_attr_is_set(ct,ATTR_ORIG_PORT_DST)){
+		dport = nfct_get_attr_u16(ct, ATTR_ORIG_PORT_DST);
+	}
+	if(nfct_attr_is_set(ct,ATTR_ORIG_COUNTER_PACKETS)){
+		packets += nfct_get_attr_u64(ct, ATTR_ORIG_COUNTER_PACKETS);
+	}
+	if(nfct_attr_is_set(ct,ATTR_REPL_COUNTER_PACKETS)){
+		packets += nfct_get_attr_u64(ct, ATTR_REPL_COUNTER_PACKETS);
+	}
+	if(nfct_attr_is_set(ct,ATTR_ORIG_COUNTER_BYTES)){
+		bytes += nfct_get_attr_u64(ct, ATTR_ORIG_COUNTER_BYTES);
+	}
+	if(nfct_attr_is_set(ct,ATTR_REPL_COUNTER_BYTES)){
+		bytes += nfct_get_attr_u64(ct, ATTR_REPL_COUNTER_BYTES);
+	}
+	track_add(proto->p_name,inet_ntoa(src),sport,inet_ntoa(dst),dport,packets,bytes);
 
 	return NFCT_CB_CONTINUE;
 }
 
-int main(int argc, char **argv){
+int main(int argc, char *argv[]){
+	int srcflag = 0;
+	int dstflag = 0;
+	char src[16] = "";
+	char dst[16] = "";
 	int ret;
 	struct nfct_handle *h;
 	struct nf_conntrack *ct;
 	int family = AF_INET;
 	trackList = NULL;
 
+	int opt;
+	while((opt = getopt(argc, argv, "s:d:")) != -1){
+		switch(opt){
+			case 's':
+				srcflag = 1;
+				strncpy(src,optarg,15);
+				break;
+			case 'd':
+				dstflag = 1;
+				strncpy(dst,optarg,15);
+				break;
+			case '?':
+				fprintf(stderr,"\tUsage: ./netflow [-s <ip>] [-d <ip>]\n");
+				exit(-1);
+		}
+	}
+
 	track_init();
 
 	ct = nfct_new();
-	assert(ct != NULL);
+	if(!ct){
+		perror("nfct_new");
+		exit(-1);
+	}
+
+	nfct_set_attr_u8(ct,ATTR_REPL_L3PROTO, AF_INET);
+	if(srcflag)
+		nfct_set_attr_u32(ct, ATTR_ORIG_IPV4_SRC, inet_addr(src));
+	if(dstflag)
+		nfct_set_attr_u32(ct, ATTR_ORIG_IPV4_DST, inet_addr(dst));
 
 	h = nfct_open(CONNTRACK, 0);
-	assert(h != NULL);
+	if(!h){
+		perror("nfct_open");
+		exit(-1);
+	}
 
 	ret = nfct_callback_register(h, NFCT_T_ALL, cb, ct);
 	if(ret == -1){
-		perror(strerror(errno));
+		perror("nfct_callback_register");
+		exit(-1);
 	}
 	ret = nfct_query(h, NFCT_Q_DUMP, &family);
 	if(ret == -1){
-		perror(strerror(errno));
+		perror("nfct_query");
+		exit(-1);
 	}
 
 	qsort(trackList,idx,sizeof(struct track), track_comp);

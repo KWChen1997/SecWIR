@@ -11,15 +11,15 @@
 struct track{
 	char type[10];
         char ip1[16];
-	int port1;
-	int port2;
+	uint16_t port1;
+	uint16_t port2;
         char ip2[16];
-        unsigned long packets;
-        unsigned long bytes;
+        uint64_t packets;
+        uint64_t bytes;
 };
 
 void track_init();
-void track_add(char *type, char *ip1, int port1, char *ip2, int port2, unsigned long packets, unsigned long bytes);
+void track_add(char *type, char *ip1, uint16_t port1, char *ip2, uint16_t port2, uint64_t packets, uint64_t bytes);
 void track_expand();
 void track_print();
 void track_print5();
