@@ -6,6 +6,8 @@
 #include <errno.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <signal.h>
+#include <sys/time.h>
 
 #include <libnetfilter_conntrack/libnetfilter_conntrack.h>
 #include <libnetfilter_conntrack/libnetfilter_conntrack_tcp.h>
@@ -19,11 +21,18 @@ unsigned int idx;
 struct track *history;
 unsigned int list[65536];
 struct track top[6];
+struct nfct_handle *h;
+struct nf_conntrack *ct;
+int family;
+
 
 unsigned int min(unsigned int a, unsigned int b){
 	return (a < b)? a : b;
 }
 
+/*
+ * hash function to map (ip1,ip2,port1,port2) -> int
+ * */
 unsigned int hash(char *ip1, char *ip2, uint16_t port1, uint16_t port2){
 	unsigned int hashval;
 	for(hashval = 0; *ip1 != '\0'; ip1++){
@@ -40,6 +49,10 @@ unsigned int hash(char *ip1, char *ip2, uint16_t port1, uint16_t port2){
 	return hashval;
 }
 
+
+/*
+ * initialize the memory for saving connection data and packet rate
+ * */
 void track_init(){
 	assert(history == NULL);
 
@@ -56,6 +69,9 @@ void track_init(){
 	return;
 }
 
+/*
+ * update the state of the connection and calculate the packet rate
+ * */
 void track_add(char *type, char *ip1, uint16_t port1, char *ip2, uint16_t port2, uint64_t packets, uint64_t bytes){
 	int hid = hash(ip1,ip2,port1,port2);
 	int tid = min(5,idx);
@@ -80,6 +96,9 @@ void track_add(char *type, char *ip1, uint16_t port1, char *ip2, uint16_t port2,
 	return;
 }
 
+/*
+ * print all the tracked connections
+ * */
 void track_history(){
 	int i = 0;
 	printf("%-10s %-15s %-7s %-15s %-7s %10s %10s\n","type", "ip1", "port1", "ip2", "port2", "packets", "bytes");
@@ -89,8 +108,12 @@ void track_history(){
 	return;
 }
 
+/*
+ * print the top 5 connection of the highest packet rate
+ * */
 void track_top(){
 	int i = 0;
+	printf("-------------------\n");
 	printf("%-10s %-15s %-7s %-15s %-7s %10s %10s\n","type", "ip1", "port1", "ip2", "port2", "packets", "bytes");
 	for(i = 0; i < 5; i++){
 		printf("%-10s %-15s %-7d %-15s %-7d %10ld %10ld\n", top[i].type, top[i].ip1, top[i].port1, top[i].ip2, top[i].port2, top[i].packets, top[i].bytes);
@@ -98,20 +121,28 @@ void track_top(){
 	return;
 }
 
+/*
+ * sort the top 5 connections by packet rate
+ * */
 int track_comp(const void *lhs, const void *rhs){
 	struct track *tlhs = (struct track*)lhs;
 	struct track *trhs = (struct track*)rhs;
 	return (trhs->packets - tlhs->packets);
 }
 
+/*
+ * sort all the tracked connection by packet counts
+ * */
 int track_list_comp(const void *lhs, const void *rhs){
 	struct track *tlhs = history + *(unsigned int*)lhs;
 	struct track *trhs = history + *(unsigned int*)rhs;
 	return (trhs->packets - tlhs->packets);
 }
 
+/*
+ * callback function for conntrack query
+ * */
 int cb(enum nf_conntrack_msg_type type, struct nf_conntrack *ct, void *data){
-	char buf[1024];
 	struct nf_conntrack *obj = data;
 	struct in_addr tmp;
 	char src[16] = "";
@@ -123,12 +154,11 @@ int cb(enum nf_conntrack_msg_type type, struct nf_conntrack *ct, void *data){
 	uint64_t packets = 0;
 	uint64_t bytes = 0;
 
+	// simple filter for conntrack data
 	if(!nfct_cmp(obj,ct, NFCT_CMP_ORIG))
 		return NFCT_CB_CONTINUE;
-	nfct_snprintf(buf, sizeof(buf), ct, NFCT_T_UNKNOWN, NFCT_O_DEFAULT, 0);
-	// printf("%s\n", buf);
-	// res = parser(buf);
-	// track_add(res->type, res->ip1, res->port1, res->ip2, res->port2, res->packets, res->bytes);
+
+	// extract information from nf_conntrack object
 	if(nfct_attr_is_set(ct,ATTR_ORIG_L4PROTO)){	
 		protonum = nfct_get_attr_u8(ct, ATTR_ORIG_L4PROTO);
 		proto = getprotobynumber(protonum);
@@ -159,21 +189,56 @@ int cb(enum nf_conntrack_msg_type type, struct nf_conntrack *ct, void *data){
 	if(nfct_attr_is_set(ct,ATTR_REPL_COUNTER_BYTES)){
 		bytes += nfct_get_attr_u64(ct, ATTR_REPL_COUNTER_BYTES);
 	}
+
+	// update the conntrack data list
 	track_add(proto->p_name,src,sport,dst,dport,packets,bytes);
+	// keep track of the 5 connections with highest packet rate
 	qsort(top,6,sizeof(struct track), track_comp);
 	
 	return NFCT_CB_CONTINUE;
 }
+
+void sigtimer(int signo){
+	int ret;
+	idx = 0;
+	memset(top,0,sizeof(struct track) * 6);
+	memset(list,0,sizeof(unsigned int) * TRACK_CAP);
+
+	ret = nfct_query(h, NFCT_Q_DUMP, &family);
+	if(ret == -1){
+		perror("nfct_query");
+		exit(-1);
+	}
+	qsort(list,idx,sizeof(unsigned int),track_list_comp);
+	track_top();
+	return;	
+}
+
+void sigint_h(int signo){
+	nfct_close(h);
+	nfct_destroy(ct);
+	signal(SIGINT,SIG_DFL);
+	printf("\n");
+	exit(0);
+}
+	
 
 int main(int argc, char *argv[]){
 	int srcflag = 0;
 	int dstflag = 0;
 	char src[16] = "";
 	char dst[16] = "";
+	struct itimerval value, ovalue;
 	int ret;
-	struct nfct_handle *h;
-	struct nf_conntrack *ct;
-	int family = AF_INET;
+	family = AF_INET;
+
+	signal(SIGALRM,sigtimer);
+	signal(SIGINT,sigint_h);
+
+	value.it_value.tv_sec = 0;
+	value.it_value.tv_usec = 100000;
+	value.it_interval.tv_sec = 0;
+	value.it_interval.tv_usec = 100000;
 
 	int opt;
 	while((opt = getopt(argc, argv, "hs:d:")) != -1){
@@ -221,33 +286,17 @@ int main(int argc, char *argv[]){
 		perror("nfct_callback_register");
 		exit(-1);
 	}
-	ret = nfct_query(h, NFCT_Q_DUMP, &family);
+
+	// start query for every 100ms
+	ret = setitimer(ITIMER_REAL,&value,&ovalue);
 	if(ret == -1){
-		perror("nfct_query");
+		perror("setitimer");
 		exit(-1);
 	}
 
-	qsort(list,idx,sizeof(unsigned int),track_list_comp);
-	track_history();
-	printf("\n");
+	for(;;);
 
-	sleep(1);
-
-	idx = 0;
-	memset(top,0,sizeof(struct track) * 6);
-	memset(list,0,sizeof(unsigned int) * TRACK_CAP);
-
-	ret = nfct_query(h, NFCT_Q_DUMP, &family);
-	if(ret == -1){
-		perror("nfct_query");
-		exit(-1);
-	}
-
-	qsort(list,idx,sizeof(unsigned int),track_list_comp);
-	track_history();
-	printf("\n");
-
-	track_top();
+	// should not be executed
 
 	nfct_close(h);
 	nfct_destroy(ct);
