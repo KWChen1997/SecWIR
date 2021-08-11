@@ -122,6 +122,18 @@ void track_top(){
 }
 
 /*
+ * clear the packets and bytes store in top list
+ * but reserve the ip/port
+ * */
+void track_clear_top(){
+	int i = 0;
+	for(i = 0; i < 5; i++){
+		top[i].packets = top[i].bytes = 0;
+	}
+	return;
+}
+
+/*
  * sort the top 5 connections by packet rate
  * */
 int track_comp(const void *lhs, const void *rhs){
@@ -201,7 +213,7 @@ int cb(enum nf_conntrack_msg_type type, struct nf_conntrack *ct, void *data){
 void sigtimer(int signo){
 	int ret;
 	idx = 0;
-	memset(top,0,sizeof(struct track) * 6);
+	track_clear_top();
 	memset(list,0,sizeof(unsigned int) * TRACK_CAP);
 
 	ret = nfct_query(h, NFCT_Q_DUMP, &family);
@@ -235,16 +247,26 @@ int main(int argc, char *argv[]){
 	signal(SIGALRM,sigtimer);
 	signal(SIGINT,sigint_h);
 
+	// 100 ms setting
+	/*
 	value.it_value.tv_sec = 0;
-	value.it_value.tv_usec = 100000;
+	value.it_value.tv_usec = 1;
 	value.it_interval.tv_sec = 0;
 	value.it_interval.tv_usec = 100000;
+	*/
+	// 1 sec setting
+	//*
+	value.it_value.tv_sec = 0;
+	value.it_value.tv_usec = 1;
+	value.it_interval.tv_sec = 1;
+	value.it_interval.tv_usec = 0;
+	//*/
 
 	int opt;
-	while((opt = getopt(argc, argv, "hs:d:")) != -1){
+	while((opt = getopt(argc, argv, "hs:d:T:t:")) != -1){
 		switch(opt){
 			case 'h':
-				fprintf(stderr,"Usage: ./netflow [-s <ip>] [-d <ip>]\n");
+				fprintf(stderr,"Usage: ./netflow [-s <ip>] [-d <ip>] [-T <second>] [-t <millisecond>]\n\tNote: -T/-t are exclusive\n");
 				exit(0);
 				break;
 			case 's':
@@ -255,8 +277,16 @@ int main(int argc, char *argv[]){
 				dstflag = 1;
 				strncpy(dst,optarg,15);
 				break;
+			case 't':
+				value.it_interval.tv_usec = atoi(optarg) * 1000;
+				value.it_interval.tv_sec = 0;
+				break;
+			case 'T':
+				value.it_interval.tv_sec = atoi(optarg);
+				value.it_interval.tv_usec = 0;
+				break;
 			case '?':
-				fprintf(stderr,"\tUsage: ./netflow [-s <ip>] [-d <ip>]\n");
+				fprintf(stderr,"\tUsage: ./netflow [-s <ip>] [-d <ip>] [-T <second>] [-t <millisecond>]\n\t\tNote: -T/-t are exclusive\n");
 				exit(-1);
 		}
 	}
