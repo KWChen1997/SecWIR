@@ -8,6 +8,8 @@
 #include <netdb.h>
 #include <signal.h>
 #include <sys/time.h>
+#include <time.h>
+#include <fcntl.h>
 
 #include <libnetfilter_conntrack/libnetfilter_conntrack.h>
 #include <libnetfilter_conntrack/libnetfilter_conntrack_tcp.h>
@@ -24,6 +26,7 @@ struct track top[6];
 struct nfct_handle *h;
 struct nf_conntrack *ct;
 int family;
+int filefd;
 
 
 unsigned int min(unsigned int a, unsigned int b){
@@ -113,7 +116,18 @@ void track_history(){
  * */
 void track_top(){
 	int i = 0;
+	struct timeval curTime;
+	gettimeofday(&curTime, NULL);
+	time_t rawtime;
+	struct tm *timeinfo;
+	char buf[80];
+
+	time(&rawtime);
+	timeinfo = localtime(&rawtime);
+	strftime(buf, 80, "%H:%M:%S", timeinfo);
+
 	printf("-------------------\n");
+	printf("Current time: %s.%03ld\n",buf,curTime.tv_usec/1000);
 	printf("%-10s %-15s %-7s %-15s %-7s %10s %10s\n","type", "ip1", "port1", "ip2", "port2", "packets", "bytes");
 	for(i = 0; i < 5; i++){
 		printf("%-10s %-15s %-7d %-15s %-7d %10ld %10ld\n", top[i].type, top[i].ip1, top[i].port1, top[i].ip2, top[i].port2, top[i].packets, top[i].bytes);
@@ -229,6 +243,7 @@ void sigtimer(int signo){
 void sigint_h(int signo){
 	nfct_close(h);
 	nfct_destroy(ct);
+	close(filefd);
 	signal(SIGINT,SIG_DFL);
 	printf("\n");
 	exit(0);
@@ -263,7 +278,7 @@ int main(int argc, char *argv[]){
 	//*/
 
 	int opt;
-	while((opt = getopt(argc, argv, "hs:d:T:t:")) != -1){
+	while((opt = getopt(argc, argv, "hs:d:T:t:o:")) != -1){
 		switch(opt){
 			case 'h':
 				fprintf(stderr,"Usage: ./netflow [-s <ip>] [-d <ip>] [-T <second>] [-t <millisecond>]\n\tNote: -T/-t are exclusive\n");
@@ -284,6 +299,10 @@ int main(int argc, char *argv[]){
 			case 'T':
 				value.it_interval.tv_sec = atoi(optarg);
 				value.it_interval.tv_usec = 0;
+				break;
+			case 'o':
+				filefd = open(optarg, O_WRONLY|O_CREAT, 0666);
+				dup2(filefd,1);
 				break;
 			case '?':
 				fprintf(stderr,"\tUsage: ./netflow [-s <ip>] [-d <ip>] [-T <second>] [-t <millisecond>]\n\t\tNote: -T/-t are exclusive\n");
