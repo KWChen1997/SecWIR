@@ -43,6 +43,8 @@ dmesg
 
 ## Part 2: user program in C
 - Goal: show the source IP and the initial window size of tcp three way handshake
+- Library dependency
+	- libnetfilter-queue: version 1.0.3
 - Related Files:
 	- filter/filter.c
 	- filter/filter.h
