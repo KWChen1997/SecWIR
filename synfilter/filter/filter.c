@@ -42,7 +42,8 @@ static u_int32_t print_pkt (struct nfq_data *tb)
 		if(iph->protocol != IPPROTO_TCP)goto EXIT;
 		printf("source address=%u.%u.%u.%u ", NIPQUAD(iph->saddr));
 		tcph = (struct tcphdr*)(data + sizeof(struct iphdr));
-		printf("window size=%d ", ((tcph->window & 0xff)<<8) + ((tcph->window & 0xff00)>>8));
+		// printf("window size=%d ", ((tcph->window & 0xff)<<8) + ((tcph->window & 0xff00)>>8));
+		printf("window size=%d ", ntohs(tcph->window));
 		//processPacketData (data, ret);
 	}
 	fputc('\n', stdout);
