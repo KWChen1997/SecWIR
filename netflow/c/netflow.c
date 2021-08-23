@@ -20,11 +20,10 @@
 
 unsigned int cap;
 unsigned int idx;
-struct track *history;
+struct connection *history;
 unsigned int list[65536];
-struct track top[6];
+struct connection top[6];
 struct nfct_handle *h;
-struct nf_conntrack *ct;
 int family;
 int filefd;
 
@@ -33,18 +32,32 @@ unsigned int min(unsigned int a, unsigned int b){
 	return (a < b)? a : b;
 }
 
+int test(struct connection *connection, struct filter *filter){
+	return (filter->saddr == 0 || ((ntohl(connection->saddr) & filter->smask) == (ntohl(filter->saddr) & filter->smask))) &&
+	       (filter->daddr == 0 || ((ntohl(connection->daddr) & filter->dmask) == (ntohl(filter->daddr) & filter->dmask)));
+}
+
+uint32_t createmask(int num){
+	uint32_t mask = 0xFFFFFFFF;
+	mask = (mask >> (32 - num)) << (32 - num);
+	return mask;
+}
+
 /*
  * hash function to map (ip1,ip2,port1,port2) -> int
  * */
-unsigned int hash(char *ip1, char *ip2, uint16_t port1, uint16_t port2){
-	unsigned int hashval;
-	for(hashval = 0; *ip1 != '\0'; ip1++){
-		hashval = (*ip1 + 31 * hashval) % HASHSIZE;
-	}
+unsigned int hash(uint32_t ip1, uint32_t ip2, uint16_t port1, uint16_t port2){
+	unsigned int hashval = 0;
 
-	for(; *ip2 != '\0'; ip2++){
-		hashval = (*ip2 + 31 * hashval) % HASHSIZE;
-	}
+	hashval = (hashval * 31 +  ((unsigned char*)&ip1)[0]) % HASHSIZE;
+	hashval = (hashval * 31 +  ((unsigned char*)&ip1)[1]) % HASHSIZE;
+	hashval = (hashval * 31 +  ((unsigned char*)&ip1)[2]) % HASHSIZE;
+	hashval = (hashval * 31 +  ((unsigned char*)&ip1)[3]) % HASHSIZE;
+
+	hashval = (hashval * 31 +  ((unsigned char*)&ip2)[0]) % HASHSIZE;
+	hashval = (hashval * 31 +  ((unsigned char*)&ip2)[1]) % HASHSIZE;
+	hashval = (hashval * 31 +  ((unsigned char*)&ip2)[2]) % HASHSIZE;
+	hashval = (hashval * 31 +  ((unsigned char*)&ip2)[3]) % HASHSIZE;
 
 	hashval = (port1 + 31 * hashval) % HASHSIZE;
 	hashval = (port2 + 31 * hashval) % HASHSIZE;
@@ -52,19 +65,26 @@ unsigned int hash(char *ip1, char *ip2, uint16_t port1, uint16_t port2){
 	return hashval;
 }
 
+char *ntoa(uint32_t net){
+
+	char *ip = (char*)malloc(sizeof(char)*16);
+	snprintf(ip,16,"%u.%u.%u.%u", NIPQUAD(net));
+	return ip;
+}
+
 
 /*
  * initialize the memory for saving connection data and packet rate
  * */
-void track_init(){
+void connection_init(){
 	assert(history == NULL);
 
-	history = (struct track*)malloc(sizeof(struct track) * TRACK_CAP);
+	history = (struct connection*)malloc(sizeof(struct connection) * TRACK_CAP);
 	if(history == NULL){
 		perror("history malloc failed!");
 		exit(1);
 	}
-	memset(history, 0, sizeof(struct track) * TRACK_CAP);
+	memset(history, 0, sizeof(struct connection) * TRACK_CAP);
 	
 	memset(list,0,sizeof(unsigned int) * TRACK_CAP);
 	idx = 0;
@@ -75,25 +95,15 @@ void track_init(){
 /*
  * update the state of the connection and calculate the packet rate
  * */
-void track_add(char *type, char *ip1, uint16_t port1, char *ip2, uint16_t port2, uint64_t packets, uint64_t bytes){
-	int hid = hash(ip1,ip2,port1,port2);
+void connection_add(struct connection *conn){
+	int hid = hash(conn->saddr,conn->daddr,conn->sport,conn->dport);
 	int tid = min(5,idx);
 	
-	strncpy(top[tid].type,type,10);
-	strncpy(top[tid].ip1,ip1,16);
-	top[tid].port1 = port1;
-	strncpy(top[tid].ip2,ip2,16);
-	top[tid].port2 = port2;
-	top[tid].packets = packets - history[hid].packets;
-	top[tid].bytes = bytes - history[hid].bytes;
+	memcpy(top + tid, conn, sizeof(struct connection));
+	top[tid].packets -= history[hid].packets;
+	top[tid].bytes -= history[hid].bytes;
 
-	strncpy(history[hid].type,type,10);
-	strncpy(history[hid].ip1,ip1,16);
-	history[hid].port1 = port1;
-	strncpy(history[hid].ip2,ip2,16);
-	history[hid].port2 = port2;
-	history[hid].packets = packets;
-	history[hid].bytes = bytes;
+	memcpy(history + hid, conn, sizeof(struct connection));
 	list[idx] = hid;
 	idx++;
 	return;
@@ -102,11 +112,28 @@ void track_add(char *type, char *ip1, uint16_t port1, char *ip2, uint16_t port2,
 /*
  * print all the tracked connections
  * */
-void track_history(){
+void connection_history(){
 	int i = 0;
+	struct timeval curTime;
+	gettimeofday(&curTime, NULL);
+	time_t rawtime;
+	struct tm *timeinfo;
+	char buf[80];
+
+	time(&rawtime);
+	timeinfo = localtime(&rawtime);
+	strftime(buf, 80, "%H:%M:%S", timeinfo);
+
+	printf("-------------------\n");
+	printf("Current time: %s.%03ld\n",buf,curTime.tv_usec/1000);
+	
 	printf("%-10s %-15s %-7s %-15s %-7s %10s %10s\n","type", "ip1", "port1", "ip2", "port2", "packets", "bytes");
 	for(i = 0; i < idx; i++){
-		printf("%-10s %-15s %-7d %-15s %-7d %10ld %10ld\n",history[list[i]].type, history[list[i]].ip1, history[list[i]].port1, history[list[i]].ip2, history[list[i]].port2, history[list[i]].packets, history[list[i]].bytes);
+		printf("%-10s %-15s %-7d %-15s %-7d %10ld %10ld\n",
+				getprotobynumber(history[list[i]].proto)->p_name,
+			       	ntoa(history[list[i]].saddr), history[list[i]].sport,
+			       	ntoa(history[list[i]].daddr), history[list[i]].dport,
+			       	history[list[i]].packets, history[list[i]].bytes);
 	}
 	return;
 }
@@ -114,7 +141,7 @@ void track_history(){
 /*
  * print the top 5 connection of the highest packet rate
  * */
-void track_top(){
+void connection_top(){
 	int i = 0;
 	struct timeval curTime;
 	gettimeofday(&curTime, NULL);
@@ -130,7 +157,11 @@ void track_top(){
 	printf("Current time: %s.%03ld\n",buf,curTime.tv_usec/1000);
 	printf("%-10s %-15s %-7s %-15s %-7s %10s %10s\n","type", "ip1", "port1", "ip2", "port2", "packets", "bytes");
 	for(i = 0; i < 5; i++){
-		printf("%-10s %-15s %-7d %-15s %-7d %10ld %10ld\n", top[i].type, top[i].ip1, top[i].port1, top[i].ip2, top[i].port2, top[i].packets, top[i].bytes);
+		printf("%-10s %-15s %-7d %-15s %-7d %10ld %10ld\n",
+			       	getprotobynumber(top[i].proto)->p_name,
+			       	ntoa(top[i].saddr), top[i].sport,
+			       	ntoa(top[i].daddr), top[i].dport,
+			       	top[i].packets, top[i].bytes);
 	}
 	return;
 }
@@ -139,9 +170,10 @@ void track_top(){
  * clear the packets and bytes store in top list
  * but reserve the ip/port
  * */
-void track_clear_top(){
+void connection_clear_top(){
 	int i = 0;
 	for(i = 0; i < 5; i++){
+	
 		top[i].packets = top[i].bytes = 0;
 	}
 	return;
@@ -150,18 +182,18 @@ void track_clear_top(){
 /*
  * sort the top 5 connections by packet rate
  * */
-int track_comp(const void *lhs, const void *rhs){
-	struct track *tlhs = (struct track*)lhs;
-	struct track *trhs = (struct track*)rhs;
+int connection_comp(const void *lhs, const void *rhs){
+	struct connection *tlhs = (struct connection*)lhs;
+	struct connection *trhs = (struct connection*)rhs;
 	return (trhs->packets - tlhs->packets);
 }
 
 /*
  * sort all the tracked connection by packet counts
  * */
-int track_list_comp(const void *lhs, const void *rhs){
-	struct track *tlhs = history + *(unsigned int*)lhs;
-	struct track *trhs = history + *(unsigned int*)rhs;
+int connection_list_comp(const void *lhs, const void *rhs){
+	struct connection *tlhs = history + *(unsigned int*)lhs;
+	struct connection *trhs = history + *(unsigned int*)rhs;
 	return (trhs->packets - tlhs->packets);
 }
 
@@ -169,8 +201,7 @@ int track_list_comp(const void *lhs, const void *rhs){
  * callback function for conntrack query
  * */
 int cb(enum nf_conntrack_msg_type type, struct nf_conntrack *ct, void *data){
-	struct nf_conntrack *obj = data;
-	struct in_addr tmp;
+	/*
 	char src[16] = "";
 	char dst[16] = "";
 	uint16_t sport = 0;
@@ -179,47 +210,53 @@ int cb(enum nf_conntrack_msg_type type, struct nf_conntrack *ct, void *data){
 	struct protoent *proto;
 	uint64_t packets = 0;
 	uint64_t bytes = 0;
+	*/
 
-	// simple filter for conntrack data
-	if(!nfct_cmp(obj,ct, NFCT_CMP_ORIG))
-		return NFCT_CB_CONTINUE;
+	struct connection connection;
+	struct filter *filter = data;
+
+	memset(&connection,0,sizeof(struct connection));
+
+	
 
 	// extract information from nf_conntrack object
 	if(nfct_attr_is_set(ct,ATTR_ORIG_L4PROTO)){	
-		protonum = nfct_get_attr_u8(ct, ATTR_ORIG_L4PROTO);
-		proto = getprotobynumber(protonum);
+		connection.proto = nfct_get_attr_u8(ct, ATTR_ORIG_L4PROTO);
 	}
 	if(nfct_attr_is_set(ct,ATTR_ORIG_IPV4_SRC)){
-		tmp.s_addr = nfct_get_attr_u32(ct, ATTR_ORIG_IPV4_SRC);
-		snprintf(src,15,"%s",inet_ntoa(tmp));
+		connection.saddr = nfct_get_attr_u32(ct, ATTR_ORIG_IPV4_SRC);
 	}
 	if(nfct_attr_is_set(ct,ATTR_ORIG_IPV4_DST)){
-		tmp.s_addr = nfct_get_attr_u32(ct, ATTR_ORIG_IPV4_DST);
-		snprintf(dst,15,"%s",inet_ntoa(tmp));
+		connection.daddr = nfct_get_attr_u32(ct, ATTR_ORIG_IPV4_DST);
 	}
 	if(nfct_attr_is_set(ct,ATTR_ORIG_PORT_SRC)){
-		sport = nfct_get_attr_u16(ct, ATTR_ORIG_PORT_SRC);
+		connection.sport = ntohs(nfct_get_attr_u16(ct, ATTR_ORIG_PORT_SRC));
 	}
 	if(nfct_attr_is_set(ct,ATTR_ORIG_PORT_DST)){
-		dport = nfct_get_attr_u16(ct, ATTR_ORIG_PORT_DST);
+		connection.dport = ntohs(nfct_get_attr_u16(ct, ATTR_ORIG_PORT_DST));
 	}
 	if(nfct_attr_is_set(ct,ATTR_ORIG_COUNTER_PACKETS)){
-		packets += nfct_get_attr_u64(ct, ATTR_ORIG_COUNTER_PACKETS);
+		connection.packets += nfct_get_attr_u64(ct, ATTR_ORIG_COUNTER_PACKETS);
 	}
 	if(nfct_attr_is_set(ct,ATTR_REPL_COUNTER_PACKETS)){
-		packets += nfct_get_attr_u64(ct, ATTR_REPL_COUNTER_PACKETS);
+		connection.packets += nfct_get_attr_u64(ct, ATTR_REPL_COUNTER_PACKETS);
 	}
 	if(nfct_attr_is_set(ct,ATTR_ORIG_COUNTER_BYTES)){
-		bytes += nfct_get_attr_u64(ct, ATTR_ORIG_COUNTER_BYTES);
+		connection.bytes += nfct_get_attr_u64(ct, ATTR_ORIG_COUNTER_BYTES);
 	}
 	if(nfct_attr_is_set(ct,ATTR_REPL_COUNTER_BYTES)){
-		bytes += nfct_get_attr_u64(ct, ATTR_REPL_COUNTER_BYTES);
+		connection.bytes += nfct_get_attr_u64(ct, ATTR_REPL_COUNTER_BYTES);
+	}
+
+	// simple filter for conntrack data
+	if(!test(&connection,filter)){
+		return 	NFCT_CB_CONTINUE;
 	}
 
 	// update the conntrack data list
-	track_add(proto->p_name,src,sport,dst,dport,packets,bytes);
+	connection_add(&connection);
 	// keep track of the 5 connections with highest packet rate
-	qsort(top,6,sizeof(struct track), track_comp);
+	qsort(top,6,sizeof(struct connection), connection_comp);
 	
 	return NFCT_CB_CONTINUE;
 }
@@ -227,7 +264,7 @@ int cb(enum nf_conntrack_msg_type type, struct nf_conntrack *ct, void *data){
 void sigtimer(int signo){
 	int ret;
 	idx = 0;
-	track_clear_top();
+	connection_clear_top();
 	memset(list,0,sizeof(unsigned int) * TRACK_CAP);
 
 	ret = nfct_query(h, NFCT_Q_DUMP, &family);
@@ -235,14 +272,13 @@ void sigtimer(int signo){
 		perror("nfct_query");
 		exit(-1);
 	}
-	qsort(list,idx,sizeof(unsigned int),track_list_comp);
-	track_top();
+	qsort(list,idx,sizeof(unsigned int),connection_list_comp);
+	connection_history();
 	return;	
 }
 
 void sigint_h(int signo){
 	nfct_close(h);
-	nfct_destroy(ct);
 	close(filefd);
 	signal(SIGINT,SIG_DFL);
 	printf("\n");
@@ -251,12 +287,10 @@ void sigint_h(int signo){
 	
 
 int main(int argc, char *argv[]){
-	int srcflag = 0;
-	int dstflag = 0;
-	char src[16] = "";
-	char dst[16] = "";
 	struct itimerval value, ovalue;
 	int ret;
+	struct filter filter;
+	memset(&filter,0,sizeof(filter));
 	family = AF_INET;
 
 	signal(SIGALRM,sigtimer);
@@ -278,6 +312,9 @@ int main(int argc, char *argv[]){
 	//*/
 
 	int opt;
+	char buf[19] = "";
+	char *ptr;
+	struct in_addr net;
 	while((opt = getopt(argc, argv, "hs:d:T:t:o:")) != -1){
 		switch(opt){
 			case 'h':
@@ -285,12 +322,26 @@ int main(int argc, char *argv[]){
 				exit(0);
 				break;
 			case 's':
-				srcflag = 1;
-				strncpy(src,optarg,15);
+				strncpy(buf,optarg,19);
+				ptr = strtok(buf,"/");
+				inet_aton(ptr,&net);
+				filter.saddr = net.s_addr;
+				ptr = strtok(NULL,"/");
+				if(ptr != NULL)
+					filter.smask = createmask(atoi(ptr));
+				else
+					filter.smask = 0xFFFFFFFF;
 				break;
 			case 'd':
-				dstflag = 1;
-				strncpy(dst,optarg,15);
+				strncpy(buf,optarg,19);
+				ptr = strtok(buf,"/");
+				inet_aton(ptr,&net);
+				filter.daddr = net.s_addr;
+				ptr = strtok(NULL,"/");
+				if(ptr != NULL)
+					filter.dmask = createmask(atoi(ptr));
+				else
+					filter.dmask = 0xFFFFFFFF;
 				break;
 			case 't':
 				value.it_interval.tv_usec = atoi(optarg) * 1000;
@@ -310,8 +361,8 @@ int main(int argc, char *argv[]){
 		}
 	}
 
-	track_init();
-
+	connection_init();
+	/*
 	ct = nfct_new();
 	if(!ct){
 		perror("nfct_new");
@@ -323,6 +374,7 @@ int main(int argc, char *argv[]){
 		nfct_set_attr_u32(ct, ATTR_ORIG_IPV4_SRC, inet_addr(src));
 	if(dstflag)
 		nfct_set_attr_u32(ct, ATTR_ORIG_IPV4_DST, inet_addr(dst));
+	*/
 
 	h = nfct_open(CONNTRACK, 0);
 	if(!h){
@@ -330,7 +382,7 @@ int main(int argc, char *argv[]){
 		exit(-1);
 	}
 
-	ret = nfct_callback_register(h, NFCT_T_ALL, cb, ct);
+	ret = nfct_callback_register(h, NFCT_T_ALL, cb, &filter);
 	if(ret == -1){
 		perror("nfct_callback_register");
 		exit(-1);
@@ -348,7 +400,6 @@ int main(int argc, char *argv[]){
 	// should not be executed
 
 	nfct_close(h);
-	nfct_destroy(ct);
 	
 	return 0;
 }
