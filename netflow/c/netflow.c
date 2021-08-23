@@ -23,8 +23,8 @@
 unsigned int cap;
 unsigned int idx;
 struct connection *history;
+struct connection *rate;
 unsigned int list[65536];
-struct connection top[6];
 struct nfct_handle *h;
 int family;
 int filefd;
@@ -50,7 +50,7 @@ uint32_t createmask(int num){
 /*
  * hash function to map (ip1,ip2,port1,port2) -> int
  * */
-unsigned int hash(uint32_t ip1, uint32_t ip2, uint16_t port1, uint16_t port2){
+unsigned int hash1(uint32_t ip1, uint32_t ip2, uint16_t port1, uint16_t port2){
 	unsigned int hashval = 0;
 
 	hashval = (hashval * 31 +  ((unsigned char*)&ip1)[0]) % HASHSIZE;
@@ -69,6 +69,29 @@ unsigned int hash(uint32_t ip1, uint32_t ip2, uint16_t port1, uint16_t port2){
 	return hashval;
 }
 
+/*
+ * hash function to map (ip1,ip2,port1,port2) -> int
+ * */
+unsigned int hash2(uint32_t ip1, uint32_t ip2, uint16_t port1, uint16_t port2){
+	unsigned int hashval = 0;
+
+	hashval = (hashval * 37 +  ((unsigned char*)&ip1)[0]) % HASHSIZE;
+	hashval = (hashval * 37 +  ((unsigned char*)&ip1)[1]) % HASHSIZE;
+	hashval = (hashval * 37 +  ((unsigned char*)&ip1)[2]) % HASHSIZE;
+	hashval = (hashval * 37 +  ((unsigned char*)&ip1)[3]) % HASHSIZE;
+
+	hashval = (hashval * 37 +  ((unsigned char*)&ip2)[0]) % HASHSIZE;
+	hashval = (hashval * 37 +  ((unsigned char*)&ip2)[1]) % HASHSIZE;
+	hashval = (hashval * 37 +  ((unsigned char*)&ip2)[2]) % HASHSIZE;
+	hashval = (hashval * 37 +  ((unsigned char*)&ip2)[3]) % HASHSIZE;
+
+	hashval = (port1 + 37 * hashval) % HASHSIZE;
+	hashval = (port2 + 37 * hashval) % HASHSIZE;
+
+	return hashval;
+}
+
+
 char *ntoa(uint32_t net){
 
 	char *ip = (char*)malloc(sizeof(char)*16);
@@ -82,6 +105,7 @@ char *ntoa(uint32_t net){
  * */
 void connection_init(){
 	assert(history == NULL);
+	assert(rate == NULL);
 
 	history = (struct connection*)malloc(sizeof(struct connection) * TRACK_CAP);
 	if(history == NULL){
@@ -89,6 +113,13 @@ void connection_init(){
 		exit(1);
 	}
 	memset(history, 0, sizeof(struct connection) * TRACK_CAP);
+
+	rate = (struct connection*)malloc(sizeof(struct connection) * TRACK_CAP);
+	if(rate == NULL){
+		perror("history malloc failed!");
+		exit(1);
+	}
+	memset(rate, 0, sizeof(struct connection) * TRACK_CAP);
 	
 	memset(list,0,sizeof(unsigned int) * TRACK_CAP);
 	idx = 0;
@@ -100,15 +131,30 @@ void connection_init(){
  * update the state of the connection and calculate the packet rate
  * */
 void connection_add(struct connection *conn){
-	int hid = hash(conn->saddr,conn->daddr,conn->sport,conn->dport);
-	//int tid = min(5,idx);
-	
-	/*memcpy(top + tid, conn, sizeof(struct connection));
-	top[tid].packets -= history[hid].packets;
-	top[tid].bytes -= history[hid].bytes;
-	*/
-	memcpy(history + hid, conn, sizeof(struct connection));
-	list[idx] = hid;
+	int j = 0;
+	unsigned int h1 = hash1(conn->saddr,conn->daddr,conn->sport,conn->dport);
+	unsigned int h2 = hash2(conn->saddr,conn->daddr,conn->sport,conn->dport);
+
+	unsigned int hashval = h1;
+	struct connection *target = history + hashval;
+	while(target->valid){
+		if(target->proto == conn->proto &&
+			target->saddr == conn->saddr &&
+			target->daddr == conn->daddr &&
+			target->sport == conn->sport &&
+			target->dport == conn->dport){
+			break;
+		}
+		fprintf(stderr, "Collision %d\n", j);
+		j++;
+		hashval = (h1 + (j * h2) % HASHSIZE ) % HASHSIZE;
+		target = history + hashval;
+	}
+	memcpy(rate + hashval, conn, sizeof(struct connection));
+	rate[hashval].packets -= history[hashval].packets;
+	rate[hashval].bytes -= history[hashval].bytes;
+	memcpy(target, conn, sizeof(struct connection));
+	list[idx] = hashval;
 	idx++;
 	return;
 }
@@ -133,23 +179,19 @@ void connection_history(){
 	
 	fprintf(stderr,"%-10s %-15s %-7s %-15s %-7s %10s %10s\n","type", "ip1", "port1", "ip2", "port2", "packets", "bytes");
 	for(i = 0; i < idx; i++){
-		fprintf(stderr,"%-10s %-15s %-7d %-15s %-7d %10ld %10ld\n",
-				getprotobynumber(history[list[i]].proto)->p_name,
-			       	ntoa(history[list[i]].saddr), history[list[i]].sport,
-			       	ntoa(history[list[i]].daddr), history[list[i]].dport,
-			       	history[list[i]].packets, history[list[i]].bytes);
-		write(STDOUT_FILENO, history + list[i], sizeof(struct connection));
+		fprintf(stderr,"%-10s %-15s %-7d %-15s %-7d %10ld %10ld\n", getprotobynumber(history[list[i]].proto)->p_name, ntoa(history[list[i]].saddr), history[list[i]].sport, ntoa(history[list[i]].daddr), history[list[i]].dport, history[list[i]].packets, history[list[i]].bytes);
+		//write(STDOUT_FILENO, history + list[i], sizeof(struct connection));
 	}
 	
-	write(STDOUT_FILENO, &(struct connection){.proto = 0, .saddr = 0, .sport = 0, .daddr = 0, .dport = 0, .packets = 0, .bytes = 0}, sizeof(struct connection));
+	//write(STDOUT_FILENO, &(struct connection){.proto = 0, .saddr = 0, .sport = 0, .daddr = 0, .dport = 0, .packets = 0, .bytes = 0, .valid = 0}, sizeof(struct connection));
 	
 	return;
 }
 
 /*
- * print the top 5 connection of the highest packet rate
+ * print all the tracked connection rate
  * */
-void connection_top(){
+void connection_rate(){
 	int i = 0;
 	struct timeval curTime;
 	gettimeofday(&curTime, NULL);
@@ -161,48 +203,27 @@ void connection_top(){
 	timeinfo = localtime(&rawtime);
 	strftime(buf, 80, "%H:%M:%S", timeinfo);
 
-	printf("-------------------\n");
-	printf("Current time: %s.%03ld\n",buf,curTime.tv_usec/1000);
-	printf("%-10s %-15s %-7s %-15s %-7s %10s %10s\n","type", "ip1", "port1", "ip2", "port2", "packets", "bytes");
-	for(i = 0; i < 5; i++){
-		printf("%-10s %-15s %-7d %-15s %-7d %10ld %10ld\n",
-			       	getprotobynumber(top[i].proto)->p_name,
-			       	ntoa(top[i].saddr), top[i].sport,
-			       	ntoa(top[i].daddr), top[i].dport,
-			       	top[i].packets, top[i].bytes);
+	fprintf(stderr,"-------------------\n");
+	fprintf(stderr,"Current time: %s.%03ld\n",buf,curTime.tv_usec/1000);
+	
+	fprintf(stderr,"%-10s %-15s %-7s %-15s %-7s %10s %10s\n","type", "ip1", "port1", "ip2", "port2", "packets", "bytes");
+	for(i = 0; i < idx; i++){
+		fprintf(stderr,"%-10s %-15s %-7d %-15s %-7d %10ld %10ld\n", getprotobynumber(rate[list[i]].proto)->p_name, ntoa(rate[list[i]].saddr), rate[list[i]].sport, ntoa(rate[list[i]].daddr), rate[list[i]].dport, rate[list[i]].packets, rate[list[i]].bytes);
+		//write(STDOUT_FILENO, rate + list[i], sizeof(struct connection));
 	}
+	
+	//write(STDOUT_FILENO, &(struct connection){.proto = 0, .saddr = 0, .sport = 0, .daddr = 0, .dport = 0, .packets = 0, .bytes = 0, .valid = 0}, sizeof(struct connection));
 	
 	return;
 }
 
-/*
- * clear the packets and bytes store in top list
- * but reserve the ip/port
- * */
-void connection_clear_top(){
-	int i = 0;
-	for(i = 0; i < 5; i++){
-	
-		top[i].packets = top[i].bytes = 0;
-	}
-	return;
-}
-
-/*
- * sort the top 5 connections by packet rate
- * */
-int connection_comp(const void *lhs, const void *rhs){
-	struct connection *tlhs = (struct connection*)lhs;
-	struct connection *trhs = (struct connection*)rhs;
-	return (trhs->packets - tlhs->packets);
-}
 
 /*
  * sort all the tracked connection by packet counts
  * */
 int connection_list_comp(const void *lhs, const void *rhs){
-	struct connection *tlhs = history + *(unsigned int*)lhs;
-	struct connection *trhs = history + *(unsigned int*)rhs;
+	struct connection *tlhs = rate + *(unsigned int*)lhs;
+	struct connection *trhs = rate + *(unsigned int*)rhs;
 	return (trhs->packets - tlhs->packets);
 }
 
@@ -210,23 +231,13 @@ int connection_list_comp(const void *lhs, const void *rhs){
  * callback function for conntrack query
  * */
 int cb(enum nf_conntrack_msg_type type, struct nf_conntrack *ct, void *data){
-	/*
-	char src[16] = "";
-	char dst[16] = "";
-	uint16_t sport = 0;
-	uint16_t dport = 0;
-	int protonum;
-	struct protoent *proto;
-	uint64_t packets = 0;
-	uint64_t bytes = 0;
-	*/
 
 	struct connection connection;
 	struct filter *filter = data;
 
 	memset(&connection,0,sizeof(struct connection));
 
-	
+	connection.valid = 1;
 
 	// extract information from nf_conntrack object
 	if(nfct_attr_is_set(ct,ATTR_ORIG_L4PROTO)){	
@@ -282,12 +293,13 @@ void sigtimer(int signo){
 		exit(-1);
 	}
 	qsort(list,idx,sizeof(unsigned int),connection_list_comp);
-	connection_history();
+	connection_rate();
 	return;	
 }
 
 void sigint_h(int signo){
 	nfct_close(h);
+
 	//close(filefd);
 	signal(SIGINT,SIG_DFL);
 	printf("\n");
@@ -320,18 +332,6 @@ int main(int argc, char *argv[]){
 	value.it_interval.tv_sec = 1;
 	value.it_interval.tv_usec = 0;
 	//*/
-	
-	// socket
-	struct sockaddr_un server;
-	sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
-	if(sockfd == -1){
-		perror("socket");
-		exit(-1);
-	}
-
-	memset(&server, 0, sizeof(struct sockaddr_un));
-	server.sun_family = AF_UNIX;
-	strcpy(server.sun_path, "/tmp/conntrack_socket");
 	
 	int opt;
 	char buf[19] = "";
@@ -397,28 +397,17 @@ int main(int argc, char *argv[]){
 		exit(-1);
 	}
 
-	// start query for every 100ms
-	while(1){
-		if(connect(sockfd, (struct sockaddr*) &server, sizeof(struct sockaddr_un)) == -1){
-			perror("connect");
-			exit(-1);
-		}
 
-		dup2(sockfd, STDOUT_FILENO);
-		close(sockfd);
-
-		fprintf(stderr,"Start conntrack ...\n");
-		
-		ret = setitimer(ITIMER_REAL,&value,&ovalue);
-		if(ret == -1){
-			perror("setitimer");
-			exit(-1);
-		}
-		
-		sigtimer(SIGALRM);
-
-		for(;;){}
+	fprintf(stderr,"Start conntrack ...\n");
+	
+	ret = setitimer(ITIMER_REAL,&value,&ovalue);
+	if(ret == -1){
+		perror("setitimer");
+		exit(-1);
 	}
+	
+	for(;;){}
+	//sigtimer(SIGALRM);
 
 	// should not be executed
 

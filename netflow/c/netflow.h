@@ -31,6 +31,7 @@ struct connection {
 	uint16_t dport;
 	uint64_t packets;
 	uint64_t bytes;
+	uint8_t valid;
 };
 
 struct track{
