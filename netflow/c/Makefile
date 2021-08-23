@@ -1,16 +1,14 @@
 CC=gcc
 CFLAGS= -g -Wall
-SRCS=${wildcard *.c}
-OBJS=${patsubst %.c,%.o,$(SRCS)}
 CLIBS= -lnetfilter_conntrack
 PROG=netflow
 
-.PRECIOUS:$(OBJS)
-
 all: $(PROG)
 
-$(PROG):$(SRCS) 
+$(PROG):$(PROG).c
 	$(CC) $(CFLAGS) -o $@ $^ $(CLIBS)
 
+server:server.c
+	$(CC) $(CFLAGS) -o $@ $^
 clean:
-	rm *.o $(PROG)
+	rm $(PROG) server

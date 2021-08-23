@@ -10,6 +10,8 @@
 #include <sys/time.h>
 #include <time.h>
 #include <fcntl.h>
+#include <sys/socket.h>
+#include<sys/un.h>
 
 #include <libnetfilter_conntrack/libnetfilter_conntrack.h>
 #include <libnetfilter_conntrack/libnetfilter_conntrack_tcp.h>
@@ -26,6 +28,8 @@ struct connection top[6];
 struct nfct_handle *h;
 int family;
 int filefd;
+int sockfd;
+int clifd;
 
 
 unsigned int min(unsigned int a, unsigned int b){
@@ -97,12 +101,12 @@ void connection_init(){
  * */
 void connection_add(struct connection *conn){
 	int hid = hash(conn->saddr,conn->daddr,conn->sport,conn->dport);
-	int tid = min(5,idx);
+	//int tid = min(5,idx);
 	
-	memcpy(top + tid, conn, sizeof(struct connection));
+	/*memcpy(top + tid, conn, sizeof(struct connection));
 	top[tid].packets -= history[hid].packets;
 	top[tid].bytes -= history[hid].bytes;
-
+	*/
 	memcpy(history + hid, conn, sizeof(struct connection));
 	list[idx] = hid;
 	idx++;
@@ -124,17 +128,21 @@ void connection_history(){
 	timeinfo = localtime(&rawtime);
 	strftime(buf, 80, "%H:%M:%S", timeinfo);
 
-	printf("-------------------\n");
-	printf("Current time: %s.%03ld\n",buf,curTime.tv_usec/1000);
+	fprintf(stderr,"-------------------\n");
+	fprintf(stderr,"Current time: %s.%03ld\n",buf,curTime.tv_usec/1000);
 	
-	printf("%-10s %-15s %-7s %-15s %-7s %10s %10s\n","type", "ip1", "port1", "ip2", "port2", "packets", "bytes");
+	fprintf(stderr,"%-10s %-15s %-7s %-15s %-7s %10s %10s\n","type", "ip1", "port1", "ip2", "port2", "packets", "bytes");
 	for(i = 0; i < idx; i++){
-		printf("%-10s %-15s %-7d %-15s %-7d %10ld %10ld\n",
+		fprintf(stderr,"%-10s %-15s %-7d %-15s %-7d %10ld %10ld\n",
 				getprotobynumber(history[list[i]].proto)->p_name,
 			       	ntoa(history[list[i]].saddr), history[list[i]].sport,
 			       	ntoa(history[list[i]].daddr), history[list[i]].dport,
 			       	history[list[i]].packets, history[list[i]].bytes);
+		write(STDOUT_FILENO, history + list[i], sizeof(struct connection));
 	}
+	
+	write(STDOUT_FILENO, &(struct connection){.proto = 0, .saddr = 0, .sport = 0, .daddr = 0, .dport = 0, .packets = 0, .bytes = 0}, sizeof(struct connection));
+	
 	return;
 }
 
@@ -163,6 +171,7 @@ void connection_top(){
 			       	ntoa(top[i].daddr), top[i].dport,
 			       	top[i].packets, top[i].bytes);
 	}
+	
 	return;
 }
 
@@ -256,7 +265,7 @@ int cb(enum nf_conntrack_msg_type type, struct nf_conntrack *ct, void *data){
 	// update the conntrack data list
 	connection_add(&connection);
 	// keep track of the 5 connections with highest packet rate
-	qsort(top,6,sizeof(struct connection), connection_comp);
+	//qsort(top,6,sizeof(struct connection), connection_comp);
 	
 	return NFCT_CB_CONTINUE;
 }
@@ -264,7 +273,7 @@ int cb(enum nf_conntrack_msg_type type, struct nf_conntrack *ct, void *data){
 void sigtimer(int signo){
 	int ret;
 	idx = 0;
-	connection_clear_top();
+	//connection_clear_top();
 	memset(list,0,sizeof(unsigned int) * TRACK_CAP);
 
 	ret = nfct_query(h, NFCT_Q_DUMP, &family);
@@ -279,7 +288,7 @@ void sigtimer(int signo){
 
 void sigint_h(int signo){
 	nfct_close(h);
-	close(filefd);
+	//close(filefd);
 	signal(SIGINT,SIG_DFL);
 	printf("\n");
 	exit(0);
@@ -292,6 +301,7 @@ int main(int argc, char *argv[]){
 	struct filter filter;
 	memset(&filter,0,sizeof(filter));
 	family = AF_INET;
+	clifd = 0;
 
 	signal(SIGALRM,sigtimer);
 	signal(SIGINT,sigint_h);
@@ -310,12 +320,24 @@ int main(int argc, char *argv[]){
 	value.it_interval.tv_sec = 1;
 	value.it_interval.tv_usec = 0;
 	//*/
+	
+	// socket
+	struct sockaddr_un server;
+	sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
+	if(sockfd == -1){
+		perror("socket");
+		exit(-1);
+	}
 
+	memset(&server, 0, sizeof(struct sockaddr_un));
+	server.sun_family = AF_UNIX;
+	strcpy(server.sun_path, "/tmp/conntrack_socket");
+	
 	int opt;
 	char buf[19] = "";
 	char *ptr;
 	struct in_addr net;
-	while((opt = getopt(argc, argv, "hs:d:T:t:o:")) != -1){
+	while((opt = getopt(argc, argv, "hs:d:T:t:")) != -1){
 		switch(opt){
 			case 'h':
 				fprintf(stderr,"Usage: ./netflow [-s <ip>] [-d <ip>] [-T <second>] [-t <millisecond>]\n\tNote: -T/-t are exclusive\n");
@@ -351,10 +373,10 @@ int main(int argc, char *argv[]){
 				value.it_interval.tv_sec = atoi(optarg);
 				value.it_interval.tv_usec = 0;
 				break;
-			case 'o':
+			/*case 'o':
 				filefd = open(optarg, O_WRONLY|O_CREAT, 0666);
 				dup2(filefd,1);
-				break;
+				break;*/
 			case '?':
 				fprintf(stderr,"\tUsage: ./netflow [-s <ip>] [-d <ip>] [-T <second>] [-t <millisecond>]\n\t\tNote: -T/-t are exclusive\n");
 				exit(-1);
@@ -362,19 +384,6 @@ int main(int argc, char *argv[]){
 	}
 
 	connection_init();
-	/*
-	ct = nfct_new();
-	if(!ct){
-		perror("nfct_new");
-		exit(-1);
-	}
-
-	nfct_set_attr_u8(ct,ATTR_REPL_L3PROTO, AF_INET);
-	if(srcflag)
-		nfct_set_attr_u32(ct, ATTR_ORIG_IPV4_SRC, inet_addr(src));
-	if(dstflag)
-		nfct_set_attr_u32(ct, ATTR_ORIG_IPV4_DST, inet_addr(dst));
-	*/
 
 	h = nfct_open(CONNTRACK, 0);
 	if(!h){
@@ -389,13 +398,27 @@ int main(int argc, char *argv[]){
 	}
 
 	// start query for every 100ms
-	ret = setitimer(ITIMER_REAL,&value,&ovalue);
-	if(ret == -1){
-		perror("setitimer");
-		exit(-1);
-	}
+	while(1){
+		if(connect(sockfd, (struct sockaddr*) &server, sizeof(struct sockaddr_un)) == -1){
+			perror("connect");
+			exit(-1);
+		}
 
-	for(;;);
+		dup2(sockfd, STDOUT_FILENO);
+		close(sockfd);
+
+		fprintf(stderr,"Start conntrack ...\n");
+		
+		ret = setitimer(ITIMER_REAL,&value,&ovalue);
+		if(ret == -1){
+			perror("setitimer");
+			exit(-1);
+		}
+		
+		sigtimer(SIGALRM);
+
+		for(;;){}
+	}
 
 	// should not be executed
 
