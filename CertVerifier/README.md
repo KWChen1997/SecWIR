@@ -1,4 +1,6 @@
 # Validate certificate using OpenSSL in C
+- Library Dependency
+	- libssl-dev
 - CertVerifier
 	- usage with a binary file:
 	   ```=sh

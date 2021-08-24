@@ -31,15 +31,6 @@ static u_int32_t print_pkt (struct nfq_data *tb)
 		}
 		dns_payload = (void*)data + iph->ihl * 4 + 8;
 		dump_dns(ret - (dns_payload - (void*)iph), dns_payload);
-		int i = 0;
-		int j = 0;
-		for(i = 0; i < ret; i+= 16){
-			for(j = 0; j < 16; j++){
-				printf("%02x ", data[i+j]);
-			}
-			printf("\n");
-		}
-		printf("\n");
 	}
 
 	return id;
@@ -73,33 +64,33 @@ int main(int argc, char **argv)
 	int rv;
 	char buf[4096] __attribute__ ((aligned));
 
-	printf("opening library handle\n");
+	fprintf(stderr,"opening library handle\n");
 	h = nfq_open();
 	if (!h) {
 		fprintf(stderr, "error during nfq_open()\n");
 		exit(1);
 	}
 
-	printf("unbinding existing nf_queue handler for AF_INET (if any)\n");
+	fprintf(stderr,"unbinding existing nf_queue handler for AF_INET (if any)\n");
 	if (nfq_unbind_pf(h, AF_INET) < 0) {
 		fprintf(stderr, "error during nfq_unbind_pf()\n");
 		exit(1);
 	}
 
-	printf("binding nfnetlink_queue as nf_queue handler for AF_INET\n");
+	fprintf(stderr,"binding nfnetlink_queue as nf_queue handler for AF_INET\n");
 	if (nfq_bind_pf(h, AF_INET) < 0) {
 		fprintf(stderr, "error during nfq_bind_pf()\n");
 		exit(1);
 	}
 
-	printf("binding this socket to queue '1'\n");
+	fprintf(stderr,"binding this socket to queue '1'\n");
 	qh = nfq_create_queue(h,  NFQ_NUM, &cb, NULL);
 	if (!qh) {
 		fprintf(stderr, "error during nfq_create_queue()\n");
 		exit(1);
 	}
 
-	printf("setting copy_packet mode\n");
+	fprintf(stderr,"setting copy_packet mode\n");
 	if (nfq_set_mode(qh, NFQNL_COPY_PACKET, 0xffff) < 0) {
 		fprintf(stderr, "can't set packet_copy mode\n");
 		exit(1);
@@ -113,17 +104,17 @@ int main(int argc, char **argv)
 		nfq_handle_packet(h, buf, rv);
 	}
 
-	printf("unbinding from queue 0\n");
+	fprintf(stderr,"unbinding from queue 0\n");
 	nfq_destroy_queue(qh);
 
 #ifdef INSANE
 	/* normally, applications SHOULD NOT issue this command, since
 	 * it detaches other programs/sockets from AF_INET, too ! */
-	printf("unbinding from AF_INET\n");
+	fprintf(stderr,"unbinding from AF_INET\n");
 	nfq_unbind_pf(h, AF_INET);
 #endif
 
-	printf("closing library handle\n");
+	fprintf(stderr,"closing library handle\n");
 	nfq_close(h);
 
 	exit(0);

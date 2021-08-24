@@ -295,12 +295,22 @@ struct dns_entry *dump_dns_data(u_char *dns_start_ptr, u_char *current_ptr, int 
 }
 
 void update_dns_table(struct dns_entry *dns, char *qry_name) {
+	struct {
+		char name[DNS_MAX_LEN];
+		char addr[INET_ADDRSTRLEN];
+	} data;
+	char buf[1024];
 	if(dns->response) {
 		if(dns->dns_type == DNS_TYPE_CNAME){
-			printf("qry_name: %s, cname: %s\n", qry_name, dns->u.type_cname.cname);
+			// printf("qry_name: %s, cname: %s\n", qry_name, dns->u.type_cname.cname);
 		}
 		else if(dns->dns_type == DNS_TYPE_A || dns->dns_type == DNS_TYPE_AAAA){
-			printf("qry_name: %s, ip: %s\n", qry_name, dns->u.type_a.addr);
+			strncpy(data.name, qry_name, DNS_MAX_LEN);
+			strncpy(data.addr, dns->u.type_a.addr, INET_ADDRSTRLEN);
+			//printf("qry_name: %s, ip: %s\n", qry_name, dns->u.type_a.addr);
+			snprintf(buf,1024,"qry_name %s ip %s\n", data.name, data.addr);
+			write(STDOUT_FILENO, buf, 1024);
+			// write(STDOUT_FILENO, &data, sizeof(data));
 		}
 	}
 }
